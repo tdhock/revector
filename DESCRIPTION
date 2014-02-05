@@ -1,0 +1,9 @@
+Package: revector
+Maintainer: Toby Dylan Hocking <tdhock5@gmail.com>
+Author: Toby Dylan Hocking
+Version: 2014.2.5
+License: GPL-3
+Title: Regular expression vectors
+Description: Base R provides functions for parsing character vectors 
+ with a single regular expressions. This package provides fast C code
+ for vectors of regular expressions.
