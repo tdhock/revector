@@ -69,7 +69,7 @@ extract_match_and_groups(int *ovector, int capture_count,
 }
 
 SEXP
-matcheach_interface(SEXP sstr, SEXP pattern){
+matcheach_interface(SEXP strings, SEXP patterns){
     const char *string = NULL;
     Rboolean foundAll = FALSE, foundAny = FALSE;
     int matchIndex = -1, start = 0;
@@ -84,7 +84,7 @@ matcheach_interface(SEXP sstr, SEXP pattern){
 
 /*    if (useBytes) */
 
-    spat = CHAR(STRING_ELT(pattern, 0));
+    spat = CHAR(STRING_ELT(patterns, 0));
 
 /*    else if (use_WC) ;
     else if (use_UTF8) {*/
@@ -103,10 +103,10 @@ matcheach_interface(SEXP sstr, SEXP pattern){
     pcre *re_pcre = NULL /* -Wall */;
     pcre_extra *re_pe = NULL;
     const unsigned char *tables = NULL /* -Wall */;
-    int erroffset, i;
+    int erroffset, i, j;
     const char *errorptr;
     int capture_count, *ovector = NULL, ovector_size = 0, /* -Wall */
-	name_count, name_entry_size, info_code;
+	name_count, name_entry_size, info_code, capture_count_i;
     char *name_table;
     SEXP capture_names = R_NilValue;
     int cflags = 0;
@@ -140,12 +140,56 @@ matcheach_interface(SEXP sstr, SEXP pattern){
 	UNPROTECT(1);
     }
 
-    PROTECT(ans = allocMatrix(STRSXP, length(pattern), capture_count));
+    PROTECT(ans = allocMatrix(STRSXP, length(patterns), capture_count));
     PROTECT(dmn = allocVector(VECSXP, 2));
     SET_VECTOR_ELT(dmn, 1, capture_names);
     setAttrib(ans, R_DimNamesSymbol, dmn);
 
+    // Go through the strings and patterns.
+    for(i = 0; i < length(patterns); i++){
+	string = CHAR(STRING_ELT(strings, i));
+	spat = CHAR(STRING_ELT(patterns, i));
+	re_pcre = pcre_compile(spat, cflags, &errorptr, &erroffset, tables);
+	if (!re_pcre) {
+	    if (errorptr)
+		warning(_("PCRE pattern compilation error\n\t'%s'\n\tat '%s'\n"),
+			errorptr, spat+erroffset);
+	    error(_("invalid regular expression '%s'"), spat);
+	}
+	info_code = 
+	    pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_CAPTURECOUNT, 
+			  &capture_count_i);
+	if(info_code < 0)
+	    error(_("'pcre_fullinfo' returned '%d' "), info_code);
+	if(capture_count_i != capture_count)
+	    error(_("first pattern has %d groups, element %d has %d"),
+		    capture_count, i+1, capture_count_i);
+	int rc, slen = (int) strlen(string);
+	rc = pcre_exec(re_pcre, re_pe, string, slen, start, 0, ovector,
+		       ovector_size);
+	if (rc >= 0) { // if matched...
+	    for(j = 0; j < capture_count; j++){
+		SET_STRING_ELT(ans, i, mkChar(string));
+		/* extract_match_and_groups(ovector, capture_count, */
+		/* 			 INTEGER(matchbuf) + matchIndex, */
+		/* 			 INTEGER(matchlenbuf) + matchIndex, */
+		/* 			 INTEGER(capturebuf) + matchIndex, */
+		/* 			 INTEGER(capturelenbuf) + matchIndex, */
+		/* 			 string, bufsize); */
+	    }
+	} else {
+	    for(j = 0; j < capture_count; j++){
+		SET_STRING_ELT(ans, i + j*length(patterns), NA_STRING);
+	    }
+	}
+    }
+
     UNPROTECT(3);
+    if (re_pe) pcre_free(re_pe);
+    pcre_free(re_pcre);
+    pcre_free((void *)tables);
+    free(ovector);
     return ans;
 }
+
 
