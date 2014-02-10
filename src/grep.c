@@ -2,9 +2,6 @@
 #include <R.h>
 #include <Rinternals.h>
 
-
-
-
 #ifdef ENABLE_NLS
 #include <libintl.h>
 #define _(String) dgettext ("pkg", String)
@@ -12,8 +9,6 @@
 #else
 #define _(String) (String)
 #endif
-
-
 
 /* Some systems using --with-system-pcre might have pcre headers in
    a subdirectory -- not seen recently.
@@ -24,61 +19,22 @@
 # include <pcre.h>
 #endif
 
-/* This function is used to convert a single ovector (match_start,
-   match_end) pair (in bytes) to a pair of (match_start in 1-indexed
-   unicode characters stored in mptr, match_length in number of
-   unicode characters stored in lenptr)
-
-   We have to do this once for the match and once for every group, so
-   I generalized the method and call it twice from
-   extract_match_and_groups to avoid repetitive code.
-   
-   Toby Dylan Hocking 2011-03-10
-*/
-static Rboolean 
-ovector_extract_start_length(int *ovector,
-			     int *mptr,int *lenptr,const char *string)
-{
-    int st = ovector[0];
-    *mptr = st + 1; /* index from one */
-    *lenptr = ovector[1] - st;
-}
-
-/* this function generalizes the parsing of the "ovector" from pcre
-   which contains the match and group start and end bytes. it is
-   organized as follows: match_start match_end group1_start group1_end
-   group2_start group2_end ... we process these in regexpr and
-   gregexpr, so I made this function to avoid duplicating code between
-   the 2. 
-
-   Toby Dylan Hocking 2011-03-10 */
-static Rboolean 
-extract_match_and_groups(int *ovector, int capture_count,
-			 int *mptr, int *lenptr, int *cptr, int *clenptr,
-			 const char *string, int capture_stride)
-{
-    Rboolean foundAll =
-	ovector_extract_start_length(ovector, mptr, lenptr, string);
-    /* also extract capture locations */
-    for(int i = 0; i < capture_count; i++) {
-	int ind = capture_stride*i;
-	ovector_extract_start_length(ovector+2*(i+1),
-				     cptr+ind, clenptr+ind, string);
-    }
-    return foundAll;
-}
-
 SEXP
 matcheach_interface(SEXP strings, SEXP patterns){
-    const char *string = NULL;
-    Rboolean foundAll = FALSE, foundAny = FALSE;
-    int matchIndex = -1, start = 0;
-    SEXP ans, dmn, matchlen;         /* return vect and its attribute */
-    SEXP capturebuf, capturelenbuf;
-    SEXP matchbuf, matchlenbuf; /* buffers for storing multiple matches */
-    int bufsize = 1024;         /* starting size for buffers */
-    PROTECT_INDEX cb, clb, mb, mlb;
-    const char *spat;
+    const char *string, *spat, *errorptr;
+    char *captured;
+    SEXP ans, dmn;         /* return vect and its attribute */
+    pcre *re_pcre = NULL /* -Wall */;
+    pcre_extra *re_pe = NULL;
+    const unsigned char *tables = NULL /* -Wall */;
+    int erroffset, i, j;
+    int capture_count, *ovector = NULL, ovector_size = 0, /* -Wall */
+	*start_ptr, *end_ptr, 
+	start_byte, end_byte, captured_bytes,
+	name_count, name_entry_size, info_code, capture_count_i;
+    char *name_table;
+    SEXP capture_names;
+    int cflags = 0;
 
     // analyze the first element of pattern for groups/names.
 
@@ -99,18 +55,6 @@ matcheach_interface(SEXP strings, SEXP patterns){
 	    error(_("regular expression is invalid in this locale"));
 	    }*/
 
-
-    pcre *re_pcre = NULL /* -Wall */;
-    pcre_extra *re_pe = NULL;
-    const unsigned char *tables = NULL /* -Wall */;
-    int erroffset, i, j;
-    const char *errorptr;
-    int capture_count, *ovector = NULL, ovector_size = 0, /* -Wall */
-	name_count, name_entry_size, info_code, capture_count_i;
-    char *name_table;
-    SEXP capture_names = R_NilValue;
-    int cflags = 0;
-
     tables = pcre_maketables();
     re_pcre = pcre_compile(spat, cflags, &errorptr, &erroffset, tables);
     if (!re_pcre) {
@@ -130,6 +74,8 @@ matcheach_interface(SEXP strings, SEXP patterns){
 	error(_("'pcre_fullinfo' returned '%d' "), info_code);
     ovector_size = (capture_count + 1) * 3;
     ovector = (int *) malloc(ovector_size*sizeof(int));
+    if(ovector == NULL)
+	error(_("not enough memory for ovector"));
     SEXP thisname;
     PROTECT(capture_names = allocVector(STRSXP, capture_count));
     for(i = 0; i < name_count; i++) {
@@ -162,28 +108,37 @@ matcheach_interface(SEXP strings, SEXP patterns){
 	if(info_code < 0)
 	    error(_("'pcre_fullinfo' returned '%d' "), info_code);
 	if(capture_count_i != capture_count)
-	    error(_("first pattern has %d groups, element %d has %d"),
+	    error(_("first pattern has %d group(s), pattern %d has %d"),
 		    capture_count, i+1, capture_count_i);
 	int rc, slen = (int) strlen(string);
-	rc = pcre_exec(re_pcre, re_pe, string, slen, start, 0, ovector,
+	rc = pcre_exec(re_pcre, re_pe, string, slen, 0, 0, ovector,
 		       ovector_size);
-	if (rc >= 0) { // if matched...
-	    for(j = 0; j < capture_count; j++){
-		SET_STRING_ELT(ans, i, mkChar(string));
-		/* extract_match_and_groups(ovector, capture_count, */
-		/* 			 INTEGER(matchbuf) + matchIndex, */
-		/* 			 INTEGER(matchlenbuf) + matchIndex, */
-		/* 			 INTEGER(capturebuf) + matchIndex, */
-		/* 			 INTEGER(capturelenbuf) + matchIndex, */
-		/* 			 string, bufsize); */
-	    }
-	} else {
-	    for(j = 0; j < capture_count; j++){
+	for(j = 0; j < capture_count; j++){
+	    if (rc >= 0) { // if matched...
+/* parse the "ovector" from pcre which contains the match and group
+   start and end bytes. it is organized as follows: match_start
+   match_end group1_start group1_end group2_start group2_end ...
+
+   Toby Dylan Hocking 2014-02-10, adapted from my R source code
+   contributions in src/main/grep.c */
+		start_ptr = ovector + 2*(j+1);
+		end_ptr = start_ptr + 1;
+		start_byte = *start_ptr;
+		end_byte = *end_ptr;
+		captured_bytes = end_byte - start_byte;
+		captured = (char*)malloc((captured_bytes+1)*sizeof(char));
+		if(captured == NULL)
+		    error(_("not enough memory for captured string"));
+		strncpy(captured, string+start_byte, captured_bytes);
+		captured[captured_bytes] = '\0';
+		SET_STRING_ELT(ans, i + j*length(patterns), mkChar(captured));
+		free(captured);
+	    } else {
+		// otherwise set this row to NA.
 		SET_STRING_ELT(ans, i + j*length(patterns), NA_STRING);
 	    }
 	}
     }
-
     UNPROTECT(3);
     if (re_pe) pcre_free(re_pe);
     pcre_free(re_pcre);

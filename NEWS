@@ -1,6 +1,12 @@
 TODO
 
-str_match_each
+speed comparison vignette.
+
+2014.2.10
+
+str_match_each implemented using PCRE.
+
+tests/error.R.
 
 2014.2.5
 
