@@ -1,0 +1,13 @@
+Regular expression vectors
+
+Base R provides functions for parsing character vectors with a single
+regular expression. This package provides fast C code for vectors of
+regular expressions.
+
+#+BEGIN_SRC R
+install.packages("devtools")
+library(devtools)
+install_github("revector", "tdhock")
+library(revector)
+example(str_match_each)
+#+END_SRC

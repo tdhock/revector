@@ -2,6 +2,25 @@ TODO
 
 speed comparison vignette.
 
+str_match_each_list returning a list instead of a string matrix, when
+there are different numbers of capturing groups in each pattern.
+
+Bug: current implementation will not work for subjects with some
+unmatched groups. From the PCRE manual: 'It is possible for capturing
+subpattern number n+1 to match some part of the subject when
+subpattern n has not been used at all. For example, if the string
+"abc" is matched against the pattern (a|(z))(bc) the return from the
+function is 4, and subpatterns 1 and 3 are matched, but 2 is not. When
+this happens, both values in the offset pairs corresponding to unused
+subpatterns are set to -1. Offset values that correspond to unused
+subpatterns at the end of the expression are also set to -1. For
+example, if the string "abc" is matched against the pattern
+(abc)(x(yz)?)? subpatterns 2 and 3 are not matched. The return from
+the function is 2, because the highest used capturing subpattern
+number is 1, and the offsets for for the second and third capturing
+subpatterns (assuming the vector is large enough, of course) are set
+to -1.'
+
 2014.2.10
 
 str_match_each implemented using PCRE.
