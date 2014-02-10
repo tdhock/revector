@@ -7,3 +7,4 @@ Title: Regular expression vectors
 Description: Base R provides functions for parsing character vectors 
  with a single regular expression. This package provides fast C code
  for vectors of regular expressions.
+Depends: R (>= 2.10)
