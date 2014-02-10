@@ -1,4 +1,4 @@
-/* -*- compile-command: "R CMD check .." -*- */
+/* -*- compile-command: "R CMD INSTALL .. && R CMD check .." -*- */
 #include <R.h>
 #include <Rinternals.h>
 
@@ -73,7 +73,7 @@ matcheach_interface(SEXP sstr, SEXP pattern){
     const char *string = NULL;
     Rboolean foundAll = FALSE, foundAny = FALSE;
     int matchIndex = -1, start = 0;
-    SEXP ans, matchlen;         /* return vect and its attribute */
+    SEXP ans, dmn, matchlen;         /* return vect and its attribute */
     SEXP capturebuf, capturelenbuf;
     SEXP matchbuf, matchlenbuf; /* buffers for storing multiple matches */
     int bufsize = 1024;         /* starting size for buffers */
@@ -140,7 +140,12 @@ matcheach_interface(SEXP sstr, SEXP pattern){
 	UNPROTECT(1);
     }
 
-    UNPROTECT(1);
-    return capture_names;
+    PROTECT(ans = allocMatrix(STRSXP, length(pattern), capture_count));
+    PROTECT(dmn = allocVector(VECSXP, 2));
+    SET_VECTOR_ELT(dmn, 1, capture_names);
+    setAttrib(ans, R_DimNamesSymbol, dmn);
+
+    UNPROTECT(3);
+    return ans;
 }
 
