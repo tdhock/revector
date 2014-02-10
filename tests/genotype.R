@@ -12,5 +12,9 @@ expect <- rbind(c("A", "A"),
                 c("TAA", "TAAA"),
                 c("TAAA", "TAA"))
 stopifnot(is.character(match))
+stopifnot(is.matrix(match))
+stopifnot(nrow(match) == nrow(expect))
+stopifnot(ncol(match) == ncol(expect))
+stopifnot(!is.null(colnames(match)))
+stopifnot(c("A", "B") == colnames(match))
 stopifnot(expect == match)
-stopifnot(colnames(expect) == colnames(match))

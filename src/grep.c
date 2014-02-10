@@ -1,6 +1,19 @@
-/* -*- compile-command: "R CMD INSTALL .." -*- */
+/* -*- compile-command: "R CMD check .." -*- */
 #include <R.h>
 #include <Rinternals.h>
+
+
+
+
+#ifdef ENABLE_NLS
+#include <libintl.h>
+#define _(String) dgettext ("pkg", String)
+/* replace pkg as appropriate */
+#else
+#define _(String) (String)
+#endif
+
+
 
 /* Some systems using --with-system-pcre might have pcre headers in
    a subdirectory -- not seen recently.
@@ -23,29 +36,12 @@
    Toby Dylan Hocking 2011-03-10
 */
 static Rboolean 
-ovector_extract_start_length(Rboolean use_UTF8,int *ovector,
+ovector_extract_start_length(int *ovector,
 			     int *mptr,int *lenptr,const char *string)
 {
-    Rboolean foundAll = FALSE;
     int st = ovector[0];
     *mptr = st + 1; /* index from one */
     *lenptr = ovector[1] - st;
-    if (use_UTF8) {
-	/* Unfortunately these are in bytes */
-	if (st > 0) {
-	    *mptr = 1 + getNc(string, st);
-	    if (*mptr <= 0) { /* an invalid string */
-		*mptr = NA_INTEGER;
-		foundAll = TRUE; /* if we get here, we are done */
-	    }
-	}
-	*lenptr = getNc(string + st, *lenptr);
-	if (*lenptr < 0) {/* an invalid string */
-	    *lenptr = NA_INTEGER;
-	    foundAll = TRUE;
-	}
-    }
-    return foundAll;
 }
 
 /* this function generalizes the parsing of the "ovector" from pcre
@@ -57,24 +53,24 @@ ovector_extract_start_length(Rboolean use_UTF8,int *ovector,
 
    Toby Dylan Hocking 2011-03-10 */
 static Rboolean 
-extract_match_and_groups(Rboolean use_UTF8, int *ovector, int capture_count,
+extract_match_and_groups(int *ovector, int capture_count,
 			 int *mptr, int *lenptr, int *cptr, int *clenptr,
 			 const char *string, int capture_stride)
 {
     Rboolean foundAll =
-	ovector_extract_start_length(use_UTF8, ovector, mptr, lenptr, string);
+	ovector_extract_start_length(ovector, mptr, lenptr, string);
     /* also extract capture locations */
     for(int i = 0; i < capture_count; i++) {
 	int ind = capture_stride*i;
-	ovector_extract_start_length(use_UTF8, ovector+2*(i+1),
+	ovector_extract_start_length(ovector+2*(i+1),
 				     cptr+ind, clenptr+ind, string);
     }
     return foundAll;
 }
 
 SEXP
-matcheach_interface(SEXP string, SEXP pattern){
-{
+matcheach_interface(SEXP sstr, SEXP pattern){
+    const char *string = NULL;
     Rboolean foundAll = FALSE, foundAny = FALSE;
     int matchIndex = -1, start = 0;
     SEXP ans, matchlen;         /* return vect and its attribute */
@@ -82,147 +78,69 @@ matcheach_interface(SEXP string, SEXP pattern){
     SEXP matchbuf, matchlenbuf; /* buffers for storing multiple matches */
     int bufsize = 1024;         /* starting size for buffers */
     PROTECT_INDEX cb, clb, mb, mlb;
+    const char *spat;
+
+    // analyze the first element of pattern for groups/names.
+
+/*    if (useBytes) */
+
+    spat = CHAR(STRING_ELT(pattern, 0));
+
+/*    else if (use_WC) ;
+    else if (use_UTF8) {*/
+
+/*  spat = translateCharUTF8(STRING_ELT(pattern, 0));
+    if (!utf8Valid(spat)) error(_("regular expression is invalid UTF-8"));
+*/
+
+/*    } else {
+	spat = translateChar(STRING_ELT(pat, 0));
+	if (mbcslocale && !mbcsValid(spat))
+	    error(_("regular expression is invalid in this locale"));
+	    }*/
+
 
     pcre *re_pcre = NULL /* -Wall */;
     pcre_extra *re_pe = NULL;
     const unsigned char *tables = NULL /* -Wall */;
+    int erroffset, i;
+    const char *errorptr;
+    int capture_count, *ovector = NULL, ovector_size = 0, /* -Wall */
+	name_count, name_entry_size, info_code;
+    char *name_table;
+    SEXP capture_names = R_NilValue;
+    int cflags = 0;
 
-	tables = pcre_maketables();
-	re_pcre = pcre_compile(spat, cflags, &errorptr, &erroffset, tables);
-	if (!re_pcre) {
-	    if (errorptr)
-		warning(_("PCRE pattern compilation error\n\t'%s'\n\tat '%s'\n"),
-			errorptr, spat+erroffset);
-	    error(_("invalid regular expression '%s'"), spat);
-	}
-	if (n > 10) {
-	    re_pe = pcre_study(re_pcre, 0, &errorptr);
-	    if (errorptr)
-		warning(_("PCRE pattern study error\n\t'%s'\n"), errorptr);
-	}
-	/* also extract info for named groups */
-	pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_NAMECOUNT, &name_count);
-	pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_NAMEENTRYSIZE, &name_entry_size);
-	pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_NAMETABLE, &name_table);
-	info_code = 
-	    pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_CAPTURECOUNT, 
-			  &capture_count);
-	if(info_code < 0)
-	    error(_("'pcre_fullinfo' returned '%d' "), info_code);
-	ovector_size = (capture_count + 1) * 3;
-	ovector = (int *) malloc(ovector_size*sizeof(int));
-	SEXP thisname;
-	PROTECT(capture_names = allocVector(STRSXP, capture_count));
-	for(i = 0; i < name_count; i++) {
-	    char *entry = name_table + name_entry_size * i;
-	    PROTECT(thisname = mkChar(entry + 2));
-	    int capture_num = (entry[0]<<8) + entry[1] - 1;
-	    SET_STRING_ELT(capture_names, capture_num, thisname);
-	    UNPROTECT(1);
-	}
+    tables = pcre_maketables();
+    re_pcre = pcre_compile(spat, cflags, &errorptr, &erroffset, tables);
+    if (!re_pcre) {
+	if (errorptr)
+	    warning(_("PCRE pattern compilation error\n\t'%s'\n\tat '%s'\n"),
+		    errorptr, spat+erroffset);
+	error(_("invalid regular expression '%s'"), spat);
+    }
 
-    PROTECT_WITH_INDEX(capturebuf = 
-		       allocVector(INTSXP, bufsize*capture_count), &cb);
-    PROTECT_WITH_INDEX(capturelenbuf = 
-		       allocVector(INTSXP, bufsize*capture_count), &clb);
-    PROTECT_WITH_INDEX(matchbuf = allocVector(INTSXP, bufsize), &mb);
-    PROTECT_WITH_INDEX(matchlenbuf = allocVector(INTSXP, bufsize), &mlb);
-    while (!foundAll) {
-	int rc, slen = (int) strlen(string);
-	rc = pcre_exec(re_pcre, re_pe, string, slen, start, 0, ovector,
-		       ovector_size);
-	if (rc >= 0) {
-	    if ((matchIndex + 1) == bufsize) {
-		/* Reallocate match buffers */
-		int newbufsize = bufsize * 2;
-		SEXP tmp;
-		tmp = allocVector(INTSXP, newbufsize);
-		for (int j = 0; j < bufsize; j++) /* or use memcpy */
-		    INTEGER(tmp)[j] = INTEGER(matchlenbuf)[j];
-		REPROTECT(matchlenbuf = tmp, mlb);
-		tmp = allocVector(INTSXP, newbufsize);
-		for (int j = 0; j < bufsize; j++)  /* or use memcpy */
-		    INTEGER(tmp)[j] = INTEGER(matchbuf)[j];
-		REPROTECT(matchbuf = tmp, mb);
-		if (capture_count) {
-		    tmp = allocVector(INTSXP, newbufsize*capture_count);
-		    for(int j = 0; j < bufsize; j++)
-			for(int i = 0; i < capture_count; i++)
-			    INTEGER(tmp)[j + newbufsize*i] = 
-				INTEGER(capturebuf)[j + bufsize*i];
-		    REPROTECT(capturebuf = tmp, cb);
-		    tmp = allocVector(INTSXP, newbufsize*capture_count);
-		    for(int j = 0; j < bufsize; j++)
-			for(int i = 0; i < capture_count; i++)
-			    INTEGER(tmp)[j + newbufsize*i] = 
-				INTEGER(capturelenbuf)[j + bufsize*i];
-		    REPROTECT(capturelenbuf =  tmp, clb);
-		}
-		bufsize = newbufsize;
-	    }
-	    matchIndex++;
-	    foundAny = TRUE;
-	    foundAll = 
-		extract_match_and_groups(use_UTF8, ovector, capture_count,
-					 INTEGER(matchbuf) + matchIndex,
-					 INTEGER(matchlenbuf) + matchIndex,
-					 INTEGER(capturebuf) + matchIndex,
-					 INTEGER(capturelenbuf) + matchIndex,
-					 string, bufsize);
-	    /* we need to advance 'start' in bytes */
-	    if (ovector[1] - ovector[0] == 0)
-		start = ovector[0] + 1;
-	    else
-		start = ovector[1];
-	    if (start >= slen) foundAll = 1;
-	} else {
-	    foundAll = TRUE;
-	    if (!foundAny) matchIndex = 0;
-	}
+    pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_NAMECOUNT, &name_count);
+    pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_NAMEENTRYSIZE, &name_entry_size);
+    pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_NAMETABLE, &name_table);
+    info_code = 
+	pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_CAPTURECOUNT, 
+		      &capture_count);
+    if(info_code < 0)
+	error(_("'pcre_fullinfo' returned '%d' "), info_code);
+    ovector_size = (capture_count + 1) * 3;
+    ovector = (int *) malloc(ovector_size*sizeof(int));
+    SEXP thisname;
+    PROTECT(capture_names = allocVector(STRSXP, capture_count));
+    for(i = 0; i < name_count; i++) {
+	char *entry = name_table + name_entry_size * i;
+	PROTECT(thisname = mkChar(entry + 2));
+	int capture_num = (entry[0]<<8) + entry[1] - 1;
+	SET_STRING_ELT(capture_names, capture_num, thisname);
+	UNPROTECT(1);
     }
-    PROTECT(ans = allocVector(INTSXP, matchIndex + 1));
-    /* Protect in case install("match.length") allocates */
-    PROTECT(matchlen = allocVector(INTSXP, matchIndex + 1));
-    setAttrib(ans, install("match.length"), matchlen);
-    if(useBytes) {
-	setAttrib(ans, install("useBytes"), ScalarLogical(TRUE));
-    }
+
     UNPROTECT(1);
-    if (foundAny) {
-	for (int j = 0; j <= matchIndex; j++) {
-	    INTEGER(ans)[j] = INTEGER(matchbuf)[j];
-	    INTEGER(matchlen)[j] = INTEGER(matchlenbuf)[j];
-	}
-    } else
-	INTEGER(ans)[0] = INTEGER(matchlen)[0] = -1;
-
-    if (capture_count) {
-	SEXP capture, capturelen, dmn;
-	PROTECT(capture = allocMatrix(INTSXP, matchIndex+1, capture_count));
-	PROTECT(capturelen = allocMatrix(INTSXP, matchIndex+1, capture_count));
-	PROTECT(dmn = allocVector(VECSXP, 2));
-	SET_VECTOR_ELT(dmn, 1, capture_names);
-	setAttrib(capture, R_DimNamesSymbol, dmn);
-	setAttrib(capturelen, R_DimNamesSymbol, dmn);
-	if (foundAny) {
-	    for (int j = 0; j <= matchIndex; j++)
-		for(int i = 0; i < capture_count; i++) {
-		    int return_index = j + (matchIndex+1) * i;
-		    int buffer_index = j + bufsize * i;
-		    INTEGER(capture)[return_index] =
-			INTEGER(capturebuf)[buffer_index];
-		    INTEGER(capturelen)[return_index] =
-			INTEGER(capturelenbuf)[buffer_index];
-		}
-	} else
-	    for(int i = 0; i < capture_count; i++)
-		INTEGER(capture)[i] = INTEGER(capturelen)[i] = -1;
-	setAttrib(ans, install("capture.start"), capture);
-	setAttrib(ans, install("capture.length"), capturelen);
-	setAttrib(ans, install("capture.names"), capture_names);
-	UNPROTECT(3);
-    }
-    UNPROTECT(5); /* 4 with indices, ans */
-    return ans;
+    return capture_names;
 }
 
