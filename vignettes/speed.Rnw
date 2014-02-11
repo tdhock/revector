@@ -142,7 +142,7 @@ print(repeatable)
 <<scaling,fig=TRUE>>=
 times <- data.frame()
 set.seed(1)
-for(size in c(5, 10, 50, 100, 500, 1000)){
+for(size in c(5, 10, 50, 100, 500, 1000, 5000, 10000)){
   print(size)
   picked <- sample(nrow(complicated), size)
   geno.data <- complicated[picked,]
