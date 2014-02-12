@@ -21,6 +21,10 @@ number is 1, and the offsets for for the second and third capturing
 subpatterns (assuming the vector is large enough, of course) are set
 to -1.'
 
+2014.2.12
+
+Fixed a memory leak via pcre_free().
+
 2014.2.10
 
 str_match_each implemented using PCRE.

@@ -70,6 +70,7 @@ matcheach_interface(SEXP strings, SEXP patterns){
     info_code = 
 	pcre_fullinfo(re_pcre, re_pe, PCRE_INFO_CAPTURECOUNT, 
 		      &capture_count);
+    pcre_free(re_pcre);
     if(info_code < 0)
 	error(_("'pcre_fullinfo' returned '%d' "), info_code);
     ovector_size = (capture_count + 1) * 3;
@@ -138,10 +139,9 @@ matcheach_interface(SEXP strings, SEXP patterns){
 		SET_STRING_ELT(ans, i + j*length(patterns), NA_STRING);
 	    }
 	}
+	pcre_free(re_pcre);
     }
     UNPROTECT(3);
-    if (re_pe) pcre_free(re_pe);
-    pcre_free(re_pcre);
     pcre_free((void *)tables);
     free(ovector);
     return ans;
