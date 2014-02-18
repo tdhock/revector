@@ -113,12 +113,23 @@ geno.data <- geno.ex
 do.call(microbenchmark, margs)
 @ 
 
+The code above runs the different methods on the small data table, and
+checks to make sure that it extracts the correct information. Because
+there was no error, we know that they all return the same, correct
+answer.
+
+However, the methods differ in terms of speed. The microbenchmark
+package ran each method neval times, and it is clear that
+\verb+revector::str_match_each+ is the fastest by an order of
+magnitude. This is because it processes the entire vector of regular
+expressions in C code, avoiding the overhead of repeatedly calling
+sub/strplit/regexec/regmatches from R code.
+
 <<repeatable,fig=TRUE>>=
 ## Try only the complicated expressions.
 complicated <- genotypes[nchar(genotypes$geno) > 2,]
 seed.times <- data.frame()
-for(size in c(5, 10, 50, 100)){
-  print(size)
+for(size in c(5, 10, 50)){
   for(seed in 1:10){
     set.seed(seed)
     picked <- sample(nrow(complicated), size)
@@ -131,7 +142,13 @@ library(grid)
 scales <- data.frame(seconds=1, label="1 second")
 repeatable <- ggplot()+
   geom_point(aes(factor(seed), log10(time/1e9)), data=seed.times)+
-  facet_grid(size ~ expr)+
+  facet_grid(size ~ expr, function(var, val){
+    if(var == "size"){
+      sprintf("%d patterns", val)
+    }else{
+      val
+    }
+  })+
   theme_bw()+
   theme(panel.margin=unit(0, "cm"))+
   geom_hline(aes(yintercept=log10(seconds)), data=scales)+
@@ -139,10 +156,16 @@ repeatable <- ggplot()+
 print(repeatable)
 @ 
 
+The figure above shows the amount of time it takes to process a random
+set of $n$ patterns and strings, where $n$ is given on the right panel
+title. It is clear that the timings vary little between different
+random seeds/data subsets.
+
 <<scaling,fig=TRUE>>=
 times <- data.frame()
 set.seed(1)
-for(size in c(5, 10, 50, 100, 500, 1000, 5000, 10000)){
+for(size in c(5, 10, 50#, 100, 500, 1000, 5000, 10000
+              )){
   print(size)
   picked <- sample(nrow(complicated), size)
   geno.data <- complicated[picked,]
@@ -164,5 +187,10 @@ bands <- ggplot()+
 print(bands)
 
 @ 
+
+Finally, the figure above shows timings of the different methods as a
+function of data set size. It is clear that
+\verb+revector::str_match_each+ is the fastest method to process these
+data.
 
 \end{document}

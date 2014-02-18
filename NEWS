@@ -1,7 +1,5 @@
 TODO
 
-speed comparison vignette.
-
 str_match_each_list returning a list instead of a string matrix, when
 there are different numbers of capturing groups in each pattern.
 
