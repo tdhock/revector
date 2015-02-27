@@ -6,8 +6,7 @@ regular expressions.
 
 #+BEGIN_SRC R
 install.packages("devtools")
-library(devtools)
-install_github("revector", "tdhock")
+devtools::install_github("tdhock/revector")
 library(revector)
 example(str_match_each)
 #+END_SRC
