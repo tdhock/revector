@@ -19,27 +19,10 @@ genotype is two of these alleles concatenated together. The goal is to
 extract these two alleles, resulting in a $n\times 2$ character matrix.
 
 <<setup>>=
-works_with_R <- function(Rvers,...){
-  pkg_ok_have <- function(pkg,ok,have){
-    stopifnot(is.character(ok))
-    if(!as.character(have) %in% ok){
-      warning("works with ",pkg," version ",
-              paste(ok,collapse=" or "),
-              ", have ",have)
-    }
-  }
-  pkg_ok_have("R",Rvers,getRversion())
-  pkg.vers <- list(...)
-  for(pkg in names(pkg.vers)){
-    if(!suppressWarnings(require(pkg, character.only=TRUE))){
-      install.packages(pkg)
-    }
-    pkg_ok_have(pkg, pkg.vers[[pkg]], packageVersion(pkg))
-    library(pkg, character.only=TRUE)
-  }
-}
-works_with_R("3.0.2", revector="2014.2.10", microbenchmark="1.3.0",
-             ggplot2="0.9.3.1", dplyr="0.1")
+library(revector)
+library(microbenchmark)
+library(ggplot2)
+library(dplyr)
 data(genotypes)
 geno.ex <- genotypes[c(11, 26, 98, 52434, 70150, 129, 1, 29, 5),]
 want <- cbind(c("G", "A", "CCA", "ATAT", "AGC", "ATTTT", NA, NA, NA),
@@ -138,19 +121,18 @@ for(size in c(5, 10, 50)){
     seed.times <- rbind(seed.times, data.frame(bench, size, seed))
   }
 }
-library(grid)
 scales <- data.frame(seconds=1, label="1 second")
 repeatable <- ggplot()+
   geom_point(aes(factor(seed), log10(time/1e9)), data=seed.times)+
-  facet_grid(size ~ expr, function(var, val){
+  facet_grid(size ~ expr, labeller=function(var, val){
     if(var == "size"){
-      sprintf("%d patterns", val)
+      sprintf("%d patterns", as.integer(val))
     }else{
-      val
+      paste(val)
     }
   })+
   theme_bw()+
-  theme(panel.margin=unit(0, "cm"))+
+  theme(panel.margin=grid::unit(0, "cm"))+
   geom_hline(aes(yintercept=log10(seconds)), data=scales)+
   geom_text(aes(y=log10(seconds), label=label), data=scales, vjust=1, x=5)
 print(repeatable)
@@ -172,9 +154,9 @@ for(size in c(5, 10, 50#, 100, 500, 1000, 5000, 10000
   bench <- do.call(microbenchmark, margs)
   times <- rbind(times, data.frame(bench, size))
 }
-stats <- times %.%
-  group_by(expr, size) %.%
-  mutate(seconds=time/1e9) %.%
+stats <- times %>%
+  group_by(expr, size) %>%
+  mutate(seconds=time/1e9) %>%
   summarise(min=min(seconds), max=max(seconds))
 scales$size <- (max(stats$size)+min(stats$size))/2
 bands <- ggplot()+

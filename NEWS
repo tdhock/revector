@@ -19,6 +19,10 @@ number is 1, and the offsets for for the second and third capturing
 subpatterns (assuming the vector is large enough, of course) are set
 to -1.'
 
+2015.02.27
+
+Makevars -lpcre to avoid compilation errors.
+
 2014.2.12
 
 Fixed a memory leak via pcre_free().
