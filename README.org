@@ -10,3 +10,40 @@ devtools::install_github("tdhock/revector")
 library(revector)
 example(str_match_each)
 #+END_SRC
+
+** Related work
+
+stringi provides similar functionality:
+
+#+begin_src R
+  > genotype <- c("GA", "TAATAAA")
+  > pat <- c("(?<A>[ATCG])(?<B>[ATCG])", "^(?<C>TAA|TAAA)(?<D>TAA|TAAA)")
+  > revector::str_match_each(genotype, pat)
+       A     B    
+  [1,] "G"   "A"  
+  [2,] "TAA" "TAA"
+  > stringi::stri_match_first_regex(genotype, pat)
+       [,1]     [,2]  [,3] 
+  [1,] "GA"     "G"   "A"  
+  [2,] "TAATAA" "TAA" "TAA"
+#+end_src
+
+The code above shows that revector gives colnames using the first
+pattern (and ignores the others), whereas stringi ignores all of the
+names in the pattern.
+
+#+begin_src R
+  > pat <- c("(?<A>[ATCG])", "^(?<C>TAA|TAAA)(?<D>TAA|TAAA)")
+  > revector::str_match_each(genotype, pat)
+  Error in revector::str_match_each(genotype, pat) : 
+    first pattern has 1 group(s), pattern 2 has 2
+  > stringi::stri_match_first_regex(genotype, pat)
+       [,1]     [,2]  [,3] 
+  [1,] "G"      "G"   NA   
+  [2,] "TAATAA" "TAA" "TAA"
+#+end_src
+
+The code above shows that revector stops with an error if there is not
+the same number of groups in each pattern, whereas stringi uses the
+max group number, and fills with NA when a pattern has less than the
+max number of groups.
